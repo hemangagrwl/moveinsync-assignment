@@ -60,7 +60,9 @@ class TripStat:
     status: str
 
 
-def _engine(cache: bool, provider: MockRoutingProvider, breaker: CircuitBreaker | None = None) -> DistanceEngine:
+def _engine(
+    cache: bool, provider: MockRoutingProvider, breaker: CircuitBreaker | None = None
+) -> DistanceEngine:
     cfg = RuleConfig()
     router = ResilientRouter(
         provider,
