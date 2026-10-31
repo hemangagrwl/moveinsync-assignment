@@ -10,7 +10,17 @@ Is the API slow?                backfill_http_request_seconds
 
 from __future__ import annotations
 
-from prometheus_client import Counter, Gauge, Histogram
+import os
+
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+    multiprocess,
+)
 
 from backfill.providers.breaker import BreakerState
 
@@ -32,10 +42,15 @@ PROVIDER_PAIRS = Counter("backfill_provider_pairs_total", "Cell pairs sent to th
 PROVIDER_SECONDS = Histogram("backfill_provider_call_seconds", "Provider batch latency")
 PROVIDER_RETRIES = Counter("backfill_provider_retries_total", "HTTP retries against the provider")
 ROUTE_LOOKUPS = Counter("backfill_route_lookups_total", "Route lookups by source", ["source"])
-BREAKER_STATE = Gauge("backfill_breaker_state", "0=closed 1=half-open 2=open")
+# With several worker processes each has its own breaker; "max" shows the worst one.
+BREAKER_STATE = Gauge("backfill_breaker_state", "0=closed 1=half-open 2=open", multiprocess_mode="max")
 
-RECOMPUTE_QUEUE_DEPTH = Gauge("backfill_recompute_queue_depth", "Pending recompute jobs")
-RECOMPUTE_LAG = Gauge("backfill_recompute_lag_seconds", "Age of the oldest due recompute job")
+RECOMPUTE_QUEUE_DEPTH = Gauge(
+    "backfill_recompute_queue_depth", "Pending recompute jobs", multiprocess_mode="max"
+)
+RECOMPUTE_LAG = Gauge(
+    "backfill_recompute_lag_seconds", "Age of the oldest due recompute job", multiprocess_mode="max"
+)
 RECOMPUTE_JOBS = Counter("backfill_recompute_jobs_total", "Recompute job outcomes", ["outcome"])
 
 LEDGER_ADJUSTMENTS = Counter("backfill_ledger_adjustments_total", "Signed deltas on closed invoices")
@@ -63,3 +78,14 @@ class PrometheusRouterObserver:
     def lookup(self, source: str, count: int) -> None:
         if count:
             ROUTE_LOOKUPS.labels(source).inc(count)
+
+
+def render_latest() -> tuple[bytes, str]:
+    """Metrics for /metrics. Under several uvicorn workers (PROMETHEUS_MULTIPROC_DIR set) each
+    process writes its samples to that directory and every scrape aggregates all of them;
+    otherwise a scrape would only see whichever process happened to answer."""
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
+        return generate_latest(registry), CONTENT_TYPE_LATEST
+    return generate_latest(), CONTENT_TYPE_LATEST

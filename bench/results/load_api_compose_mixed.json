@@ -1,0 +1,33 @@
+{
+  "mix": "mixed",
+  "concurrency": 32,
+  "seconds": 30.5,
+  "requests": 5503,
+  "throughput_rps": 180.6,
+  "endpoints": {
+    "GET distance": {
+      "count": 3812,
+      "errors": 0,
+      "p50_ms": 114.6,
+      "p95_ms": 238.3,
+      "p99_ms": 453.4,
+      "mean_ms": 130.0
+    },
+    "POST compute": {
+      "count": 1132,
+      "errors": 0,
+      "p50_ms": 218.8,
+      "p95_ms": 404.2,
+      "p99_ms": 757.0,
+      "mean_ms": 243.1
+    },
+    "POST pings": {
+      "count": 559,
+      "errors": 0,
+      "p50_ms": 147.9,
+      "p95_ms": 298.9,
+      "p99_ms": 513.1,
+      "mean_ms": 168.8
+    }
+  }
+}

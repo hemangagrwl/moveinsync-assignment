@@ -1,0 +1,17 @@
+{
+  "mix": "read",
+  "concurrency": 32,
+  "seconds": 30.3,
+  "requests": 10590,
+  "throughput_rps": 349.6,
+  "endpoints": {
+    "GET distance": {
+      "count": 10590,
+      "errors": 0,
+      "p50_ms": 73.9,
+      "p95_ms": 145.4,
+      "p99_ms": 285.3,
+      "mean_ms": 83.6
+    }
+  }
+}

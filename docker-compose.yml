@@ -47,6 +47,7 @@ services:
       JWT_SECRET: local-demo-secret-change-me-in-any-real-deployment
       USERS_FILE: /app/deploy/users.json
       LOG_JSON: "true"
+      API_WORKERS: "3"
     ports:
       - "8080:8080"
     healthcheck:

@@ -9,7 +9,6 @@ import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from backfill.api import routers
@@ -97,7 +96,8 @@ def create_app(settings: Settings | None = None, container: Container | None = N
 
     @app.get("/metrics", include_in_schema=False)
     def metrics() -> Response:
-        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+        body, content_type = m.render_latest()
+        return Response(body, media_type=content_type)
 
     for r in (routers.health, routers.auth, routers.trips, routers.ops):
         app.include_router(r)

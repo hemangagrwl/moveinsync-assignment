@@ -13,6 +13,7 @@ MoveInSync backend case study 1 (GPS gap backfill and billable distance reconstr
 | Provider calls per trip | 2.76 if you call once per gap → **1.00** batched → **0.00** on recompute (pinned + cache) |
 | Provider dies halfway through 2,000 trips | 1,000 trips go DEGRADED, all recomputed after recovery, **2,000 / 2,000 totals identical** to the healthy run |
 | Determinism | Hypothesis property tests: shuffled, duplicated and late-delivered pings bill the **same metres and fingerprint** |
+| API on docker compose (Postgres, 3 workers) | reads **350 req/s**, p99 285 ms; mixed read/compute/late-ping load p99 < 760 ms, **0 errors** |
 | Tests | 90 automated tests (unit, property, API, failure injection, threaded concurrency) |
 
 ---
@@ -240,17 +241,43 @@ The engine stays slightly positive (+0.4 %) because residual GPS noise on a movi
 little length. The worst trips (5 to 11 %) are drops whose only evidence is a planned point
 whose time is several minutes wrong.
 
-**API load.** `bench/load_api.py` (multi-process client; 70 % reads, 20 % computes, 10 % late
-pings). On the dev laptop (Windows, SQLite, uvicorn) a single read is 5 to 10 ms end to end.
-Under 32 concurrent clients the run is limited by the platform, not the service: SQLite allows
-one writer at a time, and uvicorn workers on Windows do not share connections well. Those runs
-reached about 150 read requests/s, and write latency there is not representative. The numbers
-that matter come from the Linux/Postgres stack:
+### API load (docker compose: Postgres 16, 3 API worker processes)
 
 ```bash
 docker compose up --build -d
-python bench/load_api.py --concurrency 32 --seconds 30
+python bench/load_api.py --mix read  --concurrency 32 --seconds 30
+python bench/load_api.py --mix mixed --concurrency 32 --seconds 30
 ```
+
+Docker Desktop VM with 4 CPUs and 4 GB, on the same laptop that also runs the load generator.
+The client is multi-process because a single Python process could not generate enough load.
+Raw output is in `bench/results/load_api_compose_*.json`.
+
+| Workload (32 concurrent clients, 30 s) | Throughput | p50 | p95 | p99 | Errors |
+|---|---|---|---|---|---|
+| Reads only: `GET /distance` | 350 req/s | 74 ms | 145 ms | 285 ms | 0 / 10,590 |
+| Mixed: `GET /distance` (70 %) | 181 req/s total | 115 ms | 238 ms | 453 ms | 0 |
+| Mixed: `POST distance:compute` (20 %) | | 219 ms | 404 ms | 757 ms | 0 |
+| Mixed: `POST pings`, late (10 %) | | 148 ms | 299 ms | 513 ms | 0 |
+
+Latency here is mostly queueing: a single uncontended read takes 5 to 10 ms end to end, and
+the API container sits at 100 % CPU per worker during the run. The service scales by adding
+workers or replicas, because recompute jobs are claimed by compare-and-set and the engine is
+stateless. The mixed run is heavier than it looks: every late-ping batch schedules a
+background recompute of a 1,500-ping trip. Metrics are aggregated across worker processes
+(Prometheus multiprocess mode), so a scrape never sees just one worker.
+
+For comparison, the same test on the Windows dev setup with SQLite reached about 150 req/s,
+and write p99 went up to 17 s. SQLite allows one writer at a time, so it is only used for
+local development and tests.
+
+### Verified on the compose stack
+
+* `scripts/demo.py` produces the same 52.39 km, the same rule version and the same line items
+  as the in-process run on SQLite.
+* `scripts/outage_drill.py` stops the router container: trips come back `DEGRADED`, the
+  breaker opens, and after `docker compose start router` every trip becomes `COMPLETE` with no
+  further calls. Recovered totals are identical across repeated drills (62.86 / 25.08 / 38.72 km).
 
 ### Complexity and where it stops scaling
 
