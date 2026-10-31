@@ -1,0 +1,39 @@
+{
+  "users": [
+    {
+      "username": "acme-admin",
+      "tenant_id": "acme",
+      "role": "ADMIN",
+      "employee_ref": null,
+      "password_hash": "pbkdf2_sha256$210000$9Ug4WbB9oTXldM9GlEx2CQ==$BKySncqj/ZexG8IkolSQBYAQM2MOcXTCMTHFEP9BZgI="
+    },
+    {
+      "username": "acme-ops",
+      "tenant_id": "acme",
+      "role": "OPERATOR",
+      "employee_ref": null,
+      "password_hash": "pbkdf2_sha256$210000$yjhefGJ/5V7ueEi/9F9p7Q==$3fIjvh3Ss791rFc4TsDlJsOF2k+U9rsCZhb8fPhPz4M="
+    },
+    {
+      "username": "acme-rider",
+      "tenant_id": "acme",
+      "role": "EMPLOYEE",
+      "employee_ref": "E00042",
+      "password_hash": "pbkdf2_sha256$210000$flpCtQWi+xVJgJ+umhqWoQ==$/IN8ruDcb1tBRU8NC38/t6ckisrR0Y0NXe+pRYS72EI="
+    },
+    {
+      "username": "globex-admin",
+      "tenant_id": "globex",
+      "role": "ADMIN",
+      "employee_ref": null,
+      "password_hash": "pbkdf2_sha256$210000$jsB7sQTU1GXLL59ltMYLEQ==$cKvbBPCsB6pXN/m9dzPPY6VvywOf3cUR1EvH92thPBk="
+    },
+    {
+      "username": "globex-ops",
+      "tenant_id": "globex",
+      "role": "OPERATOR",
+      "employee_ref": null,
+      "password_hash": "pbkdf2_sha256$210000$Fb1seay0E+E2slxXz4g0DA==$GHOmoefmXj0AvhdIdEg3s7PbETg4T6OgSKC9U/4C6L0="
+    }
+  ]
+}
