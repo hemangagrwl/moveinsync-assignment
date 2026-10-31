@@ -11,3 +11,4 @@ __pycache__/
 *.db-shm
 bench/results/smoke*.json
 .env
+*.log
