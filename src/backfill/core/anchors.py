@@ -7,7 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from backfill.core.config import RuleConfig
-from backfill.core.geo import haversine_m, haversine_np, is_valid_coordinate
+from backfill.core.geo import haversine_m, haversine_np, is_valid_coordinate, speed_kmh_np
 from backfill.core.models import GeoPoint, Rider, RiderStatus, RiderType, TripEvidence, TripType
 
 
@@ -181,15 +181,18 @@ class AnchorPlacer:
 
     Edge anchors (office, trip start, trip end) are always used. For employee anchors:
 
-    1. If the GPS track passes within ``anchor_visit_radius_m`` of the anchor around that time,
+    0. An anchor with a trusted time (a real pickup/drop event) inside a GPS gap is used.
+    1. Otherwise, if the GPS track passes within ``anchor_visit_radius_m`` of the anchor around that time,
        the anchor is REDUNDANT: the track already proves the cab went there, and a planned
        time that is a few minutes off would only add a zig-zag.
     2. An anchor with a trusted time (a real pickup/drop event) is used at that time, unless
        GPS already covers that moment on both sides.
-    3. A fallback anchor (planned or profile time) is RETIMED into the nearby GPS gap where it
-       adds the least detour. Its location is trusted, its time is not, so its new time is
-       interpolated by distance between the two ends of the gap: the cab is assumed to keep
-       one speed across the gap instead of teleporting to the anchor.
+    3. A fallback anchor (planned or profile time) is RETIMED into a nearby GPS gap. Gaps the
+       cab could not have driven through the anchor at a legal speed are skipped; of the rest,
+       the one with the lowest cost wins, where cost is the detour the anchor adds plus how far
+       the planned time falls outside the gap, priced at ``retime_metres_per_s``. Its location
+       is trusted, its time is not, so its new time is interpolated by distance between the
+       two ends of the gap: the cab keeps one speed across the gap.
     """
 
     def __init__(self, config: RuleConfig) -> None:
@@ -202,22 +205,28 @@ class AnchorPlacer:
         lat: NDArray[np.float64],
         lon: NDArray[np.float64],
     ) -> list[AnchorDecision]:
-        edges = [a for a in anchors if a.kind in _EDGE_KINDS]
-        ref_ts = np.concatenate([ts, np.array([a.ts_ms for a in edges], dtype=np.int64)])
-        ref_lat = np.concatenate([lat, np.array([a.lat for a in edges], dtype=np.float64)])
-        ref_lon = np.concatenate([lon, np.array([a.lon for a in edges], dtype=np.float64)])
-        order = np.argsort(ref_ts, kind="stable")
-        ref = (ref_ts[order], ref_lat[order], ref_lon[order])
-
-        decisions: list[AnchorDecision] = []
-        for a in anchors:
+        """Edge anchors first, then employee anchors in time order. Each placed anchor is added
+        to the reference track, so two drops in one gap split it instead of colliding."""
+        ref = (ts, lat, lon)
+        decided: dict[int, AnchorDecision] = {}
+        for k, a in enumerate(anchors):
             if a.kind in _EDGE_KINDS or len(ts) == 0:
-                decisions.append(AnchorDecision(a, AnchorStatus.USED, a.ts_ms))
-            else:
-                decisions.append(self._place_one(a, (ts, lat, lon), ref))
-        return decisions
+                decided[k] = AnchorDecision(a, AnchorStatus.USED, a.ts_ms)
+                ref = _insert(ref, decided[k].anchor)
+        rest = sorted(
+            (k for k in range(len(anchors)) if k not in decided),
+            key=lambda k: (anchors[k].ts_ms, anchors[k].label),
+        )
+        for k in rest:
+            d = self._place_one(anchors[k], (ts, lat, lon), ref)
+            decided[k] = d
+            if d.status is not AnchorStatus.REDUNDANT:
+                ref = _insert(ref, d.anchor)
+        return [decided[k] for k in range(len(anchors))]
 
     def _place_one(self, a: Anchor, gps: _Series, ref: _Series) -> AnchorDecision:
+        if a.time_is_trusted and self._inside_gap(a.ts_ms, ref):
+            return AnchorDecision(a, AnchorStatus.USED, a.ts_ms)
         if self._is_visited(a, gps):
             return AnchorDecision(a, AnchorStatus.REDUNDANT, a.ts_ms)
         if not a.time_is_trusted:
@@ -228,9 +237,14 @@ class AnchorPlacer:
             return AnchorDecision(a, AnchorStatus.REDUNDANT, a.ts_ms)
         return AnchorDecision(a, AnchorStatus.USED, a.ts_ms)
 
+    def _inside_gap(self, t: int, ref: _Series) -> bool:
+        ts = ref[0]
+        i = int(np.searchsorted(ts, t, side="right"))
+        return 0 < i < len(ts) and ts[i] - ts[i - 1] >= self._cfg.short_gap_s * 1000
+
     def _is_visited(self, a: Anchor, gps: _Series) -> bool:
         ts, lat, lon = gps
-        window_ms = self._cfg.fallback_anchor_search_s * 1000
+        window_ms = self._cfg.anchor_visit_window_s * 1000
         lo = int(np.searchsorted(ts, a.ts_ms - window_ms, side="left"))
         hi = int(np.searchsorted(ts, a.ts_ms + window_ms, side="right"))
         if hi <= lo:
@@ -246,28 +260,45 @@ class AnchorPlacer:
         return bool(has_before and has_after)
 
     def _retime_into_gap(self, a: Anchor, ref: _Series) -> Anchor | None:
+        """Every interval between consecutive reference points near the planned time is a
+        candidate, evaluated at once. In densely tracked stretches the anchor cannot be reached
+        at a legal speed, so in practice only real gaps survive the plausibility filter."""
         ts, lat, lon = ref
+        cfg = self._cfg
         if len(ts) < 2:
             return None
-        search_ms = self._cfg.fallback_anchor_search_s * 1000
-        gap_ms = self._cfg.short_gap_s * 1000
-        dt = np.diff(ts)
-        gaps = np.flatnonzero(
-            (dt >= gap_ms) & (ts[1:] >= a.ts_ms - search_ms) & (ts[:-1] <= a.ts_ms + search_ms)
-        )
-        if len(gaps) == 0:
+        search_ms = cfg.fallback_anchor_search_s * 1000
+        lo = max(int(np.searchsorted(ts, a.ts_ms - search_ms, side="left")) - 1, 0)
+        hi = min(int(np.searchsorted(ts, a.ts_ms + search_ms, side="right")) + 1, len(ts))
+        idx = np.arange(lo, hi - 1)
+        if len(idx) == 0:
             return None
-        best_i, best_cost, best_split = -1, float("inf"), 0.5
-        for g in gaps.tolist():
-            d_in = haversine_m(lat[g], lon[g], a.lat, a.lon)
-            d_out = haversine_m(a.lat, a.lon, lat[g + 1], lon[g + 1])
-            detour = d_in + d_out - haversine_m(lat[g], lon[g], lat[g + 1], lon[g + 1])
-            if detour < best_cost:
-                share = d_in / (d_in + d_out) if d_in + d_out > 0 else 0.5
-                best_i, best_cost, best_split = g, detour, share
-        t0, t1 = int(ts[best_i]), int(ts[best_i + 1])
-        new_ts = t0 + 1 + round((t1 - t0 - 2) * best_split)
-        return replace(a, ts_ms=new_ts)
+        t0, t1 = ts[idx], ts[idx + 1]
+        alat, alon = np.full(len(idx), a.lat), np.full(len(idx), a.lon)
+        d_in = haversine_np(lat[idx], lon[idx], alat, alon)
+        d_out = haversine_np(alat, alon, lat[idx + 1], lon[idx + 1])
+        chord = haversine_np(lat[idx], lon[idx], lat[idx + 1], lon[idx + 1])
+        moved = np.maximum(d_in + d_out - cfg.speed_tolerance_m, 0.0)
+        # The cab must be able to reach the anchor and carry on within the interval.
+        plausible = (t1 - t0 >= 2) & (
+            speed_kmh_np(moved, (t1 - t0) / 1000.0, cfg.min_speed_dt_s) <= cfg.max_speed_kmh
+        )
+        outside_s = np.maximum(0, np.maximum(t0 - a.ts_ms, a.ts_ms - t1)) / 1000.0
+        # A planned time that is off by a minute costs as much as ~500 m of detour.
+        cost = np.where(plausible, d_in + d_out - chord + outside_s * cfg.retime_metres_per_s, np.inf)
+        k = int(np.argmin(cost))
+        if not np.isfinite(cost[k]):
+            return None
+        total = d_in[k] + d_out[k]
+        share = float(d_in[k] / total) if total > 0 else 0.5
+        start, end = int(t0[k]), int(t1[k])
+        return replace(a, ts_ms=start + 1 + round((end - start - 2) * share))
+
+
+def _insert(ref: _Series, a: Anchor) -> _Series:
+    ts, lat, lon = ref
+    i = int(np.searchsorted(ts, a.ts_ms, side="right"))
+    return (np.insert(ts, i, a.ts_ms), np.insert(lat, i, a.lat), np.insert(lon, i, a.lon))
 
 
 _Series = tuple[NDArray[np.int64], NDArray[np.float64], NDArray[np.float64]]

@@ -1,0 +1,65 @@
+{
+  "machine": {
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "Intel64 Family 6 Model 154 Stepping 3, GenuineIntel",
+    "logical_cpus": 12,
+    "ram_gb": 16.8,
+    "python": "3.13.2",
+    "numpy": "2.5.4"
+  },
+  "workload": {
+    "trips": 10000,
+    "workers": 10,
+    "pings_total": 14547104,
+    "pings_per_trip_mean": 1454.7
+  },
+  "time": {
+    "wall_s_including_generation": 12.88,
+    "generation_cpu_s": 13.55,
+    "engine_cpu_s": 46.46,
+    "engine_trips_per_s_per_core": 215.3,
+    "engine_pings_per_s_per_core": 313128,
+    "engine_ms_per_trip_p50": 2.687,
+    "engine_ms_per_trip_p99": 13.847,
+    "engine_ms_per_trip_max": 25.368
+  },
+  "memory": {
+    "peak_worker_rss_mb": 49.7,
+    "main_rss_mb": 49.7
+  },
+  "accuracy_vs_ground_truth_pct": {
+    "engine": {
+      "median": 0.4,
+      "mean_abs": 0.444,
+      "p5": 0.082,
+      "p95": 0.853,
+      "max_abs": 10.963
+    },
+    "naive_sum": {
+      "median": 4.85,
+      "mean_abs": 60.4,
+      "p5": -29.068,
+      "p95": 277.053,
+      "max_abs": 1538.33
+    }
+  },
+  "provider_calls_per_trip": {
+    "one_call_per_gap_no_cache": 2.761,
+    "batched_no_cache": 0.998,
+    "batched_with_cache": 0.998,
+    "cache_hit_rate_first_pass": 0.0013,
+    "recompute_pass_with_cache": 0.0,
+    "recompute_pass_without_cache": 0.998
+  },
+  "status": {
+    "complete": 10000,
+    "degraded": 0
+  },
+  "chaos_provider_fails_halfway": {
+    "trips": 2000,
+    "degraded_then_recomputed": 1000,
+    "still_degraded": 0,
+    "totals_matching_healthy_run": 2000,
+    "mismatches": 0
+  }
+}

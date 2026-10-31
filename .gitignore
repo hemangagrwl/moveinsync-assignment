@@ -9,6 +9,5 @@ __pycache__/
 *.db
 *.db-wal
 *.db-shm
-bench/results/*.json
-!bench/results/.gitkeep
+bench/results/smoke*.json
 .env

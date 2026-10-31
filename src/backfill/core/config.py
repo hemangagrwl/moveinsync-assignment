@@ -36,6 +36,8 @@ class RuleConfig:
     anchor_coverage_s: float = 60.0
     fallback_anchor_search_s: float = 600.0
     anchor_visit_radius_m: float = 150.0
+    anchor_visit_window_s: float = 1800.0
+    retime_metres_per_s: float = 8.0
     include_no_show_anchors: bool = False
 
     # Routing cache cells (~55 m at Indian latitudes)

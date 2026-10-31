@@ -100,8 +100,12 @@ class TripGenerator:
         key_t, key_d, arrivals = self._timeline(rng, v_cum, leg_end_vertex)
         duration_s = float(key_t[-1])
 
-        # Real devices report every few seconds; short trips simply get fewer pings.
-        interval = min(max(duration_s / cfg.target_pings, 2.0), 6.0)
+        gaps = self._gaps(rng, trip_type, duration_s, arrivals, key_t, key_d)
+        covered = duration_s - _union_length(gaps)
+
+        # Real devices report every 1-6 s; the rate is chosen so roughly target_pings survive the
+        # gaps, and short trips simply get fewer pings.
+        interval = min(max(covered / cfg.target_pings, 1.0), 6.0)
         n = round(duration_s / interval)
         t = np.linspace(0.0, duration_s, n) + rng.uniform(-0.4, 0.4, n) * interval
         t = np.clip(t, 0.0, duration_s)
@@ -123,7 +127,6 @@ class TripGenerator:
         lat = lat + e_lat / METRES_PER_DEGREE
         lon = lon + e_lon / (METRES_PER_DEGREE * math.cos(math.radians(office.lat)))
 
-        gaps = self._gaps(rng, trip_type, duration_s, arrivals)
         in_gap = np.zeros(n, dtype=bool)
         for g0, g1 in gaps:
             in_gap |= (t >= g0) & (t <= g1)
@@ -234,12 +237,21 @@ class TripGenerator:
     # -- device behaviour ------------------------------------------------------------------
 
     def _gaps(
-        self, rng: np.random.Generator, trip_type: TripType, duration: float, arrivals: list[float]
+        self,
+        rng: np.random.Generator,
+        trip_type: TripType,
+        duration: float,
+        arrivals: list[float],
+        key_t: NDArray[np.float64],
+        key_d: NDArray[np.float64],
     ) -> list[tuple[float, float]]:
         cfg = self.cfg
         gaps: list[tuple[float, float]] = []
         if trip_type is TripType.LOGOUT and rng.random() < cfg.basement_prob:
-            gaps.append((0.0, float(rng.uniform(120, 300))))
+            # Basements are fixed places: GPS comes back where the ramp meets the street,
+            # 150 m along the route out of the office, on every trip.
+            exit_t = float(key_t[np.searchsorted(key_d, 150.0)])
+            gaps.append((0.0, exit_t))
         rider_arrivals = arrivals[:-1] if trip_type is TripType.LOGIN else arrivals
         for _ in range(int(rng.integers(cfg.gaps[0], cfg.gaps[1] + 1))):
             length = float(rng.uniform(*cfg.gap_minutes)) * 60
@@ -327,6 +339,16 @@ class TripGenerator:
         if trip_type is TripType.LOGOUT:
             return office_actual, near(stops[-1], float(rng.uniform(0, 30)))
         return near(stops[0], float(rng.uniform(0, 30))), office_actual
+
+
+def _union_length(intervals: list[tuple[float, float]]) -> float:
+    total, end = 0.0, -math.inf
+    for a, b in sorted(intervals):
+        if b <= end:
+            continue
+        total += b - max(a, end)
+        end = b
+    return total
 
 
 def naive_distance_m(pings: PingBatch) -> float:
