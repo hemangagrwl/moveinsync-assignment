@@ -167,6 +167,16 @@ class TripService:
                 raise NotFound("No distance has been computed for this trip yet.", code="NOT_COMPUTED")
             return ComputationView.of(row, trip.trip_ref)
 
+    def latest_with_track(self, tenant_id: str, trip_ref: str) -> tuple[ComputationView, dict[str, Any]]:
+        with self._sessions() as s:
+            trip = TripRepository(s).get(tenant_id, trip_ref)
+            if trip is None:
+                raise NotFound("Trip not found.")
+            row = ComputationRepository(s).latest(trip.id, with_track=True)
+            if row is None:
+                raise NotFound("No distance has been computed for this trip yet.", code="NOT_COMPUTED")
+            return ComputationView.of(row, trip.trip_ref), row.track or {}
+
     def history(self, tenant_id: str, trip_ref: str) -> list[ComputationView]:
         with self._sessions() as s:
             trip = TripRepository(s).get(tenant_id, trip_ref)
@@ -188,7 +198,8 @@ class TripService:
             ping_watermark=watermark,
             provider_calls=result.provider_calls,
             reason=reason,
-            result=result.to_dict(include_track=True),
+            result=result.to_dict(),
+            track=result.track_dict(),
             created_at_ms=self._now(),
         )
 

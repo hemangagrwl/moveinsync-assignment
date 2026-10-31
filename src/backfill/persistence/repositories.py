@@ -11,7 +11,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, undefer
 
 from backfill.core.models import E7, PingBatch
 from backfill.errors import Conflict
@@ -102,8 +102,12 @@ class ComputationRepository:
             )
         ).one_or_none()
 
-    def latest(self, trip_id: int, *, complete_only: bool = False) -> ComputationRow | None:
+    def latest(
+        self, trip_id: int, *, complete_only: bool = False, with_track: bool = False
+    ) -> ComputationRow | None:
         stmt = select(ComputationRow).where(ComputationRow.trip_id == trip_id)
+        if with_track:
+            stmt = stmt.options(undefer(ComputationRow.track))
         if complete_only:
             stmt = stmt.where(ComputationRow.status == "COMPLETE")
         stmt = stmt.order_by(ComputationRow.ping_watermark.desc(), ComputationRow.id.desc()).limit(1)
@@ -171,13 +175,21 @@ class JobRepository:
         self._s.flush()
         return job
 
-    def claim_next(self, worker_id: str, now_ms: int, lease_ms: int) -> RecomputeJobRow | None:
-        """Claim the oldest due job with a compare-and-set, so two workers never run the same
-        job. A RUNNING job whose lease expired (its worker crashed) is claimable again."""
-        due = or_(
+    @staticmethod
+    def _due(now_ms: int, lease_ms: int) -> Any:
+        return or_(
             (RecomputeJobRow.status == "PENDING") & (RecomputeJobRow.available_at_ms <= now_ms),
             (RecomputeJobRow.status == "RUNNING") & (RecomputeJobRow.claimed_at_ms < now_ms - lease_ms),
         )
+
+    def has_due(self, now_ms: int, lease_ms: int) -> bool:
+        stmt = select(RecomputeJobRow.id).where(self._due(now_ms, lease_ms)).limit(1)
+        return self._s.scalar(stmt) is not None
+
+    def claim_next(self, worker_id: str, now_ms: int, lease_ms: int) -> RecomputeJobRow | None:
+        """Claim the oldest due job with a compare-and-set, so two workers never run the same
+        job. A RUNNING job whose lease expired (its worker crashed) is claimable again."""
+        due = self._due(now_ms, lease_ms)
         candidates = self._s.scalars(
             select(RecomputeJobRow.id).where(due).order_by(RecomputeJobRow.available_at_ms).limit(5)
         ).all()

@@ -151,8 +151,9 @@ def distance_history(trip_ref: str, p: Staff, c: ContainerDep) -> list[DistanceO
 
 @trips.get("/{trip_ref}/map", response_class=HTMLResponse)
 def trip_map(trip_ref: str, p: Staff, c: ContainerDep) -> HTMLResponse:
-    v = c.trips.latest(p.tenant_id, trip_ref)
-    return HTMLResponse(mapview.render(v.trip_ref, v.result), headers={"Cache-Control": "no-store"})
+    v, track = c.trips.latest_with_track(p.tenant_id, trip_ref)
+    page = mapview.render(v.trip_ref, {**v.result, "track": track})
+    return HTMLResponse(page, headers={"Cache-Control": "no-store"})
 
 
 @trips.post("/{trip_ref}/invoice:close", response_model=LedgerEntryOut, status_code=201)

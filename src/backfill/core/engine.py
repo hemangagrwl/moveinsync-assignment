@@ -131,6 +131,16 @@ class TripDistance:
     def review_required(self) -> bool:
         return bool(self.review_reasons)
 
+    def track_dict(self) -> dict[str, Any] | None:
+        if self.track is None:
+            return None
+        return {
+            "ts_ms": self.track.ts_ms.tolist(),
+            "lat": self.track.lat.tolist(),
+            "lon": self.track.lon.tolist(),
+            "labels": {str(k): v for k, v in self.track.labels.items()},
+        }
+
     def to_dict(self, *, include_track: bool = False) -> dict[str, Any]:
         out: dict[str, Any] = {
             "trip_id": self.trip_id,
@@ -153,13 +163,8 @@ class TripDistance:
             },
             "route_evidence": self.route_evidence,
         }
-        if include_track and self.track is not None:
-            out["track"] = {
-                "ts_ms": self.track.ts_ms.tolist(),
-                "lat": self.track.lat.tolist(),
-                "lon": self.track.lon.tolist(),
-                "labels": {str(k): v for k, v in self.track.labels.items()},
-            }
+        if include_track:
+            out["track"] = self.track_dict()
         return out
 
 

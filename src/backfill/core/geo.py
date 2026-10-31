@@ -28,7 +28,8 @@ def haversine_np(lat1: FloatArray, lon1: FloatArray, lat2: FloatArray, lon2: Flo
     dp = p2 - p1
     dl = np.radians(lon2 - lon1)
     a = np.sin(dp / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2) ** 2
-    return 2.0 * EARTH_RADIUS_M * np.arcsin(np.sqrt(np.minimum(1.0, a)))
+    out: FloatArray = 2.0 * EARTH_RADIUS_M * np.arcsin(np.sqrt(np.minimum(1.0, a)))
+    return out
 
 
 def is_valid_coordinate(lat: float | None, lon: float | None) -> bool:

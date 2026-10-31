@@ -47,14 +47,16 @@ class RecomputeWorker:
     def run_once(self) -> bool:
         """Process at most one job. Returns True if a job was processed."""
         now = self._now()
-        with self._sessions.begin() as s:
+        # Peek with a read session first, so an idle worker never takes the write lock.
+        with self._sessions() as s:
             jobs = JobRepository(s)
             depth, lag = jobs.queue_stats(now)
             m.RECOMPUTE_QUEUE_DEPTH.set(depth)
             m.RECOMPUTE_LAG.set(lag)
-            if self._breaker.state is BreakerState.OPEN:
+            if self._breaker.state is BreakerState.OPEN or not jobs.has_due(now, self._lease_ms):
                 return False
-            job = jobs.claim_next(self._id, now, self._lease_ms)
+        with self._sessions.begin() as s:
+            job = JobRepository(s).claim_next(self._id, now, self._lease_ms)
             if job is None:
                 return False
             job_id, trip_id, reason, attempts = job.id, job.trip_id, job.reason, job.attempts

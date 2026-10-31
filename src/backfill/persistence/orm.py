@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, Index, Integer, String, UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, deferred, mapped_column
 
 # SQLite only auto-increments an INTEGER PRIMARY KEY; Postgres gets a real BIGINT.
 PK = BigInteger().with_variant(Integer(), "sqlite")
@@ -64,6 +64,8 @@ class ComputationRow(Base):
     provider_calls: Mapped[int] = mapped_column(Integer)
     reason: Mapped[str] = mapped_column(String(32))
     result: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # The merged track (coordinates) is only needed by the map view, so it is not loaded by default.
+    track: Mapped[dict[str, Any] | None] = deferred(mapped_column(JSON, nullable=True))
     created_at_ms: Mapped[int] = mapped_column(BigInteger)
 
 
